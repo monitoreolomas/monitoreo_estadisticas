@@ -288,78 +288,64 @@ def render_linea(df_cur, df_prev):
     return fig
 
 def render_pie(df_filt, mode):
+    import math
     col    = "Turno" if mode == "turno" else "Tipo Dia"
     data   = df_filt[col].value_counts().reset_index()
     data.columns = [col, "n"]
     colors = list(COLOR_TURNO.values()) if mode == "turno" else ["#22d3ee", "#f59e0b"]
+    total  = data["n"].sum()
+
     fig = px.pie(data, values="n", names=col, color_discrete_sequence=colors, hole=0.32)
+
+    # Sin etiquetas del trace — las ponemos como annotations con bgcolor
     fig.update_traces(
-        textposition="outside",
-        textinfo="percent+label",
-        textfont=dict(size=12, color="#ffffff"),
+        textinfo="none",
         hovertemplate="%{label}<br><b>%{value}</b> (%{percent})<extra></extra>",
-        outsidetextfont=dict(size=12, color="#ffffff"),
-        # Fondo gris redondeado en cada etiqueta exterior
-        texttemplate="<b>%{label}</b><br>%{percent:.1%}",
     )
-    # Agregar fondo a las etiquetas vía marker textfont bgcolor no existe en pie,
-    # pero sí podemos usar hoverlabel style + annotations manuales con bgcolor
+
+    # Calcular posición central de cada slice para poner la annotation
+    annotations = []
+    angle = 90.0  # Plotly empieza desde las 12 (90°)
+    for _, row in data.iterrows():
+        pct      = row["n"] / total
+        sweep    = pct * 360
+        mid_angle = math.radians(angle - sweep / 2)
+        # Radio al centro del anillo (entre hole y borde exterior)
+        r = 0.68
+        x = 0.5 + r * 0.5 * math.cos(mid_angle)
+        y = 0.5 + r * 0.5 * math.sin(mid_angle)
+        annotations.append(dict(
+            text=f"<b>{row[col]}</b><br>{pct*100:.1f}%",
+            x=x, y=y,
+            xref="paper", yref="paper",
+            showarrow=False,
+            font=dict(size=11, color="#ffffff", family="Barlow, sans-serif"),
+            bgcolor="rgba(60,60,60,0.72)",
+            bordercolor="rgba(255,255,255,0.0)",
+            borderpad=5,
+            borderwidth=0,
+            align="center",
+        ))
+        angle -= sweep
+
     layout = {**CHART_LAYOUT}
-    layout["margin"] = dict(l=60, r=60, t=44, b=44)
+    layout["margin"] = dict(l=12, r=12, t=44, b=12)
     fig.update_layout(
         **layout,
         height=320,
-        showlegend=False,
-        uniformtext_minsize=10,
-        uniformtext_mode="hide",
-    )
-
-    # Annotations manuales con fondo gris redondeado para cada slice
-    total = data["n"].sum()
-    # Recalcular ángulos para posicionar annotations
-    # Usamos las anotaciones de Plotly con bgcolor
-    fig.update_traces(
-        textfont_size=12,
-    )
-
-    # Sobreescribir con annotations que sí soportan bgcolor + borderpad
-    fig.update_layout(
-        annotations=[]  # limpiar annotations previas
-    )
-
-    # La forma más compatible: usar update_traces con textfont y
-    # simular fondo redondeado con hoverlabel en las etiquetas del pie
-    # Plotly pie soporta textfont pero no bgcolor por etiqueta.
-    # Mejor solución: etiquetas DENTRO con fondo simulado via color del texto
-    # sobre fondo oscuro del hole, o bien usar la leyenda estilizada.
-
-    # Solución final limpia: etiquetas dentro del gráfico (inside)
-    # con texto blanco bold, y leyenda debajo con fondo gris redondeado
-    fig.update_traces(
-        textposition="inside",
-        textinfo="percent+label",
-        texttemplate="<b>%{label}</b><br>%{percent:.1%}",
-        textfont=dict(size=12, color="#ffffff"),
-        insidetextorientation="radial",
-    )
-    fig.update_layout(
         showlegend=True,
+        annotations=annotations,
         legend=dict(
             orientation="h",
-            x=0.5, y=-0.08,
+            x=0.5, y=-0.04,
             xanchor="center",
             yanchor="top",
-            font=dict(size=13, color="#ffffff"),
-            bgcolor="rgba(80,80,80,0.6)",
-            bordercolor="rgba(255,255,255,0.0)",
+            font=dict(size=12, color="#ffffff"),
+            bgcolor="rgba(0,0,0,0)",
             borderwidth=0,
-            itemsizing="constant",
             title_text="",
         ),
-        margin=dict(l=12, r=12, t=44, b=50),
     )
-    # Bordes redondeados en la leyenda vía CSS inyectado (no soportado nativamente,
-    # se aplica via el CSS global de Streamlit en el bloque de estilos)
     return fig
 
 def render_top_horario(df_filt):
