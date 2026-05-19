@@ -1,7 +1,7 @@
 streamlit
-gspread
 pandas
-pytz
-plotly.express
-plotly.graph_objects
+plotly
+gspread
+google-auth
+openpyxl
 numpy
