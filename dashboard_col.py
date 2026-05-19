@@ -295,23 +295,26 @@ def render_pie(df_filt, mode):
     colors = list(COLOR_TURNO.values()) if mode == "turno" else ["#22d3ee", "#f59e0b"]
     total  = data["n"].sum()
 
-    fig = px.pie(data, values="n", names=col, color_discrete_sequence=colors, hole=0.32)
-
-    # Sin etiquetas del trace — las ponemos como annotations con bgcolor
-    fig.update_traces(
+    fig = go.Figure()
+    fig.add_trace(go.Pie(
+        labels=data[col],
+        values=data["n"],
+        hole=0.38,
+        marker=dict(colors=colors, line=dict(color="#060b17", width=2)),
         textinfo="none",
         hovertemplate="%{label}<br><b>%{value}</b> (%{percent})<extra></extra>",
-    )
+        sort=False,
+        direction="clockwise",
+    ))
 
-    # Calcular posición central de cada slice para poner la annotation
+    # Calcular annotations dentro del slice con fondo gris
     annotations = []
-    angle = 90.0  # Plotly empieza desde las 12 (90°)
+    angle = 90.0
     for _, row in data.iterrows():
-        pct      = row["n"] / total
-        sweep    = pct * 360
+        pct       = row["n"] / total
+        sweep     = pct * 360
         mid_angle = math.radians(angle - sweep / 2)
-        # Radio al centro del anillo (entre hole y borde exterior)
-        r = 0.68
+        r = 0.62   # radio al centro del anillo (ajustado al hole=0.38)
         x = 0.5 + r * 0.5 * math.cos(mid_angle)
         y = 0.5 + r * 0.5 * math.sin(mid_angle)
         annotations.append(dict(
@@ -320,27 +323,27 @@ def render_pie(df_filt, mode):
             xref="paper", yref="paper",
             showarrow=False,
             font=dict(size=11, color="#ffffff", family="Barlow, sans-serif"),
-            bgcolor="rgba(60,60,60,0.72)",
-            bordercolor="rgba(255,255,255,0.0)",
-            borderpad=5,
-            borderwidth=0,
+            bgcolor="rgba(30,30,30,0.78)",
+            bordercolor="rgba(255,255,255,0.12)",
+            borderpad=6,
+            borderwidth=1,
             align="center",
         ))
         angle -= sweep
 
     layout = {**CHART_LAYOUT}
-    layout["margin"] = dict(l=12, r=12, t=44, b=12)
+    layout["margin"] = dict(l=20, r=20, t=10, b=48)
     fig.update_layout(
         **layout,
-        height=320,
-        showlegend=True,
+        height=340,
         annotations=annotations,
+        showlegend=True,
         legend=dict(
             orientation="h",
             x=0.5, y=-0.04,
             xanchor="center",
             yanchor="top",
-            font=dict(size=12, color="#ffffff"),
+            font=dict(size=12, color="#e2e8f0"),
             bgcolor="rgba(0,0,0,0)",
             borderwidth=0,
             title_text="",
@@ -412,7 +415,6 @@ def pie_toggle_row(key):
             st.session_state[f"pie_mode_{key}"] = "dia"
             st.rerun()
     return mode
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PÁGINA 1 – RESUMEN
