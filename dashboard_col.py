@@ -299,8 +299,11 @@ def render_pie(df_filt, mode):
         hovertemplate="%{label}<br><b>%{value}</b> (%{percent})<extra></extra>",
         insidetextorientation="radial"
     )
+    layout = {**CHART_LAYOUT}
+    layout["margin"] = dict(l=12, r=115, t=44, b=12)
     fig.update_layout(
-        **CHART_LAYOUT, height=320,
+        **layout,
+        height=320,
         showlegend=True,
         legend=dict(
             orientation="v", x=1.02, y=0.5, xanchor="left",
@@ -309,7 +312,6 @@ def render_pie(df_filt, mode):
             bordercolor="rgba(255,255,255,0.15)",
             borderwidth=1,
         ),
-        margin=dict(l=12, r=115, t=44, b=12),
     )
     return fig
 
@@ -400,7 +402,8 @@ if st.session_state.pagina == "resumen":
     with fc_dl:
         dl_ph = st.empty()   # placeholder para el botón (necesita datos filtrados)
     with fc_nav:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        # Etiqueta invisible para alinear verticalmente con los inputs
+        st.markdown("<label style='visibility:hidden;font-size:.92rem;'>_</label>", unsafe_allow_html=True)
         if st.button("🔍 Ver Detalle →", type="primary", use_container_width=True):
             st.session_state.pagina = "detalle"
             st.rerun()
@@ -429,7 +432,7 @@ if st.session_state.pagina == "resumen":
     buf = io.BytesIO()
     df_cur.drop(columns=["Hour","Weekday","Con Cámara"], errors="ignore").to_excel(buf, index=False, engine="openpyxl")
     with dl_ph:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        st.markdown("<label style='visibility:hidden;font-size:.92rem;'>_</label>", unsafe_allow_html=True)
         st.download_button(
             "⬇ Descargar Excel", data=buf.getvalue(),
             file_name=f"novedades_{start_date}_{end_date}.xlsx",
