@@ -388,7 +388,7 @@ if st.session_state.pagina == "resumen":
 
     render_header("Resumen mensual novedades")
 
-    # Filtros + Descarga + Nav en la misma fila
+    # Filtros (primero capturamos fecha y turno para filtrar antes de dibujar botones)
     fc1, fc2, fc_dl, fc_nav = st.columns([3, 1.5, 1.6, 1.4])
     with fc1:
         date_range = st.date_input(
@@ -399,16 +399,8 @@ if st.session_state.pagina == "resumen":
     with fc2:
         turnos    = ["Todos"] + sorted(df["Turno"].dropna().unique().tolist())
         turno_sel = st.selectbox("Turno", turnos)
-    with fc_dl:
-        dl_ph = st.empty()   # placeholder para el botón (necesita datos filtrados)
-    with fc_nav:
-        # Etiqueta invisible para alinear verticalmente con los inputs
-        st.markdown("<label style='visibility:hidden;font-size:.92rem;'>_</label>", unsafe_allow_html=True)
-        if st.button("🔍 Ver Detalle →", type="primary", use_container_width=True):
-            st.session_state.pagina = "detalle"
-            st.rerun()
 
-    # Períodos
+    # Períodos (calculados antes de renderizar los botones)
     if isinstance(date_range, tuple) and len(date_range) == 2:
         start_date, end_date = date_range
     elif isinstance(date_range, tuple) and len(date_range) == 1:
@@ -428,17 +420,22 @@ if st.session_state.pagina == "resumen":
     df_cur  = filt_resumen(df, start_date, end_date)
     df_prev = filt_resumen(df, prev_start, prev_end)
 
-    # Botón de descarga (con datos ya filtrados)
+    # Botones en la misma fila que los filtros, alineados
     buf = io.BytesIO()
     df_cur.drop(columns=["Hour","Weekday","Con Cámara"], errors="ignore").to_excel(buf, index=False, engine="openpyxl")
-    with dl_ph:
-        st.markdown("<label style='visibility:hidden;font-size:.92rem;'>_</label>", unsafe_allow_html=True)
+    with fc_dl:
+        st.markdown("<label style='visibility:hidden;font-size:.92rem;font-weight:600;'>.</label>", unsafe_allow_html=True)
         st.download_button(
             "⬇ Descargar Excel", data=buf.getvalue(),
             file_name=f"novedades_{start_date}_{end_date}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
+    with fc_nav:
+        st.markdown("<label style='visibility:hidden;font-size:.92rem;font-weight:600;'>.</label>", unsafe_allow_html=True)
+        if st.button("🔍 Ver Detalle →", type="primary", use_container_width=True):
+            st.session_state.pagina = "detalle"
+            st.rerun()
 
     # KPIs
     total_cur  = len(df_cur)
