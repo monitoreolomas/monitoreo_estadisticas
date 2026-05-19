@@ -1,138 +1,127 @@
 import streamlit as st
-st.cache_data.clear()
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta, date
-import io
-import os
+import plotly.express as px
+from datetime import timedelta
+import math, io, os
 
-# ─── PAGE CONFIG ──────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Centro de Operaciones Lomas",
-    page_icon="🚔",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+st.set_page_config(page_title="COL · Análisis Operativo", page_icon="🔵", layout="wide", initial_sidebar_state="collapsed")
+
+# ── SESSION ────────────────────────────────────────────────────────────────────
+for k, v in [("vista","ejecutiva"),("pie_mode","turno")]:
+    if k not in st.session_state: st.session_state[k] = v
+
+# ── PALETA ─────────────────────────────────────────────────────────────────────
+# Carbón profundo + acento violeta/índigo + verde operativo
+BG        = "#0a0a12"
+BG2       = "#111120"
+CARD      = "#16162a"
+BORDER    = "rgba(139,92,246,0.22)"
+ACCENT    = "#8b5cf6"   # violeta principal
+ACCENT2   = "#6d28d9"
+GREEN     = "#10b981"
+AMBER     = "#f59e0b"
+RED       = "#ef4444"
+MUTED     = "#64748b"
+TEXT      = "#e2e8f0"
+TEXT2     = "#94a3b8"
+
+SEQ5 = ["#8b5cf6","#6d28d9","#4c1d95","#a78bfa","#c4b5fd"]
+SEQ_DIV = [GREEN, ACCENT, AMBER, RED, "#38bdf8"]
+
+CHART = dict(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="Inter, sans-serif", size=12, color=TEXT),
+    margin=dict(l=10, r=10, t=36, b=10),
 )
 
-# ─── SESSION STATE ────────────────────────────────────────────────────────────
-if "pagina"           not in st.session_state: st.session_state.pagina           = "resumen"
-if "pie_mode_resumen" not in st.session_state: st.session_state.pie_mode_resumen = "turno"
-if "pie_mode_detalle" not in st.session_state: st.session_state.pie_mode_detalle = "turno"
-
-# ─── CUSTOM CSS ───────────────────────────────────────────────────────────────
-st.markdown("""
+# ── CSS ────────────────────────────────────────────────────────────────────────
+st.markdown(f"""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+html,body,[class*="css"]{{font-family:'Inter',sans-serif;background:{BG};color:{TEXT};font-size:14px;}}
+#MainMenu,footer,header{{visibility:hidden;}}
+.block-container{{padding:.8rem 1.4rem 1.4rem;max-width:100%;background:{BG};}}
 
-    html, body, [class*="css"] {
-        font-family: 'Barlow', sans-serif;
-        font-size: 14px;
-        color: #e2e8f0;
-        background: #060b17;
-    }
-    #MainMenu, footer, header { visibility: hidden; }
-    .block-container { padding: 1rem 1.5rem 1.5rem; max-width: 100%; background: #060b17; }
+/* ── Topbar ── */
+.topbar{{
+    display:flex;align-items:center;justify-content:space-between;
+    background:linear-gradient(90deg,{BG2} 0%,#1a1535 50%,{BG2} 100%);
+    border:1px solid {BORDER};border-radius:16px;
+    padding:14px 24px;margin-bottom:18px;
+    box-shadow:0 4px 24px rgba(0,0,0,0.5);
+}}
+.topbar-title{{font-size:1.35rem;font-weight:800;color:{TEXT};letter-spacing:-.3px;}}
+.topbar-sub{{font-size:.82rem;color:{TEXT2};margin-top:2px;}}
+.topbar-badge{{
+    background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.35);
+    border-radius:20px;padding:5px 14px;font-size:.8rem;font-weight:600;color:#a78bfa;
+}}
 
-    /* Header */
-    .main-header {
-        background: linear-gradient(135deg, #0b1630 0%, #092040 45%, #0d3260 100%);
-        padding: 20px 30px;
-        border-radius: 25px;
-        text-align: center;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.45);
-        position: relative;
-        overflow: hidden;
-    }
-    .main-header::before {
-        content: '';
-        position: absolute;
-        bottom: -14px; left: -14px; right: -14px;
-        height: 52px;
-        background: rgba(255,255,255,0.06);
-        border-radius: 50%;
-        transform: scaleX(2);
-    }
-    .header-title {
-        color: #e2e8f0;
-        font-size: 1.9rem;
-        font-weight: 800;
-        font-style: italic;
-        text-shadow: 0 4px 18px rgba(0,0,0,0.35);
-        letter-spacing: 0.4px;
-        margin: 0;
-    }
+/* ── KPI card ── */
+.kpi{{
+    background:{CARD};border:1px solid {BORDER};border-radius:18px;
+    padding:18px 20px;position:relative;overflow:hidden;
+}}
+.kpi::before{{
+    content:'';position:absolute;top:0;left:0;right:0;height:3px;
+    background:linear-gradient(90deg,{ACCENT},{ACCENT2});border-radius:18px 18px 0 0;
+}}
+.kpi-icon{{font-size:1.6rem;margin-bottom:6px;}}
+.kpi-label{{font-size:.78rem;color:{TEXT2};font-weight:600;letter-spacing:.06em;text-transform:uppercase;}}
+.kpi-val{{font-size:2.1rem;font-weight:800;color:{TEXT};line-height:1.1;margin:4px 0;}}
+.kpi-d-pos{{font-size:.78rem;color:{GREEN};font-weight:600;}}
+.kpi-d-neg{{font-size:.78rem;color:{RED};font-weight:600;}}
+.kpi-d-neu{{font-size:.78rem;color:{MUTED};font-weight:600;}}
+.kpi-sub{{font-size:.72rem;color:{MUTED};margin-top:3px;}}
 
-    /* Cards */
-    .section-card {
-        background: rgba(15,23,42,0.85);
-        border: 1px solid rgba(56,189,248,0.15);
-        border-radius: 25px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.35);
-        padding: 20px 22px 22px;
-        margin-bottom: 18px;
-        overflow: hidden;
-    }
+/* ── Section ── */
+.card{{
+    background:{CARD};border:1px solid rgba(139,92,246,0.14);
+    border-radius:18px;padding:18px 20px 16px;margin-bottom:16px;
+    box-shadow:0 4px 20px rgba(0,0,0,0.3);
+}}
+.card-title{{
+    font-size:.9rem;font-weight:700;color:{TEXT};
+    letter-spacing:.02em;text-transform:uppercase;
+    border-bottom:1px solid rgba(139,92,246,0.18);
+    padding-bottom:8px;margin-bottom:12px;
+}}
+.card-title span{{color:{ACCENT};margin-right:7px;font-size:1rem;}}
 
-    /* KPI */
-    .kpi-card {
-        background: rgba(15,23,42,0.92);
-        border: 1px solid rgba(56,189,248,0.22);
-        border-radius: 25px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.40);
-        padding: 20px 26px;
-        margin-bottom: 4px;
-        border-left: 5px solid #38bdf8;
-    }
-    .kpi-label  { font-size:.88rem; color:#94a3b8; font-weight:600; letter-spacing:.03em; margin-bottom:4px; }
-    .kpi-value  { font-size:2.4rem; color:#f8fafc; font-weight:800; line-height:1.1; }
-    .kpi-delta-pos { font-size:.85rem; color:#4ade80; font-weight:600; margin-top:4px; }
-    .kpi-delta-neg { font-size:.85rem; color:#f87171; font-weight:600; margin-top:4px; }
-    .kpi-delta-neu { font-size:.85rem; color:#94a3b8; font-weight:600; margin-top:4px; }
+/* ── Tabs nav ── */
+.tab-nav{{display:flex;gap:8px;margin-bottom:18px;}}
+.tab-btn{{
+    padding:8px 20px;border-radius:12px;font-weight:600;font-size:.85rem;
+    cursor:pointer;border:1px solid rgba(139,92,246,0.25);
+    background:rgba(139,92,246,0.08);color:{TEXT2};transition:all .2s;
+}}
+.tab-btn.active{{background:rgba(139,92,246,0.25);color:#a78bfa;border-color:rgba(139,92,246,0.5);}}
 
-    /* Section title */
-    .section-title {
-        font-size:1.05rem; font-weight:700; color:#e2e8f0;
-        margin-bottom:14px; padding-bottom:7px;
-        border-bottom:2px solid rgba(56,189,248,0.18);
-    }
+/* ── Alerta strip ── */
+.alert{{
+    background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);
+    border-radius:12px;padding:10px 16px;font-size:.85rem;color:#fca5a5;
+    margin-bottom:14px;display:flex;align-items:center;gap:8px;
+}}
+.alert-ok{{
+    background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);
+    border-radius:12px;padding:10px 16px;font-size:.85rem;color:#6ee7b7;
+    margin-bottom:14px;display:flex;align-items:center;gap:8px;
+}}
 
-    /* Buttons */
-    .stButton > button {
-        border-radius:18px !important; font-weight:700 !important;
-        font-size:.9rem !important; padding:8px 18px !important;
-        transition:all .2s ease !important;
-    }
-    .stDownloadButton button {
-        background:#38bdf8 !important; color:#0f172a !important;
-        border:none !important; border-radius:18px !important;
-        font-weight:700 !important; font-size:.9rem !important; padding:9px 18px !important;
-    }
-    .stDownloadButton button:hover { background:#22c55e !important; color:#020617 !important; }
-
-    /* Ocultar toolbar de Plotly */
-    .js-plotly-plot .plotly .modebar { display: none !important; }
-
-    hr { border-color:rgba(56,189,248,0.15); margin:14px 0; }
-    label { font-size:.92rem !important; color:#cbd5e1 !important; font-weight:600 !important; }
+/* ── Botones ── */
+.stButton>button{{border-radius:12px!important;font-weight:600!important;font-size:.85rem!important;padding:7px 16px!important;transition:all .15s!important;}}
+.stDownloadButton button{{background:{ACCENT}!important;color:#fff!important;border:none!important;border-radius:12px!important;font-weight:700!important;font-size:.85rem!important;padding:8px 16px!important;}}
+.stDownloadButton button:hover{{background:{GREEN}!important;}}
+.js-plotly-plot .plotly .modebar{{display:none!important;}}
+hr{{border-color:rgba(139,92,246,0.12);margin:12px 0;}}
+label{{font-size:.85rem!important;color:{TEXT2}!important;font-weight:500!important;}}
 </style>
 """, unsafe_allow_html=True)
 
-# ─── PALETA ───────────────────────────────────────────────────────────────────
-TEAL_DARK   = "#0ea5e9"
-TEAL_MED    = "#38bdf8"
-TEAL_LIGHT  = "#7dd3fc"
-COLOR_SEQ   = ["#22d3ee","#38bdf8","#0ea5e9","#0284c7","#0369a1"]
-COLOR_TURNO = {"Turno Mañana":"#22d3ee","Turno Tarde":"#f59e0b","Turno Noche":"#0284c7"}
-
-CHART_LAYOUT = dict(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="Barlow, sans-serif", size=12, color="#e2e8f0"),
-    margin=dict(l=12, r=12, t=44, b=12),
-)
-
-# ─── DATA ─────────────────────────────────────────────────────────────────────
+# ── DATA ───────────────────────────────────────────────────────────────────────
 CSV_URL = (
     "https://docs.google.com/spreadsheets/d/e/"
     "2PACX-1vRBFU12b6jgWRdNJbj5yKqKJ0iucps7HFJlkmKyjNi2DeccbtnnBM4aQEEbxKOAgKL78DUZJwFIJauX"
@@ -140,518 +129,537 @@ CSV_URL = (
 )
 
 @st.cache_data(ttl=300)
-def load_data():
+def load():
     df = pd.read_csv(CSV_URL)
     df.columns = df.columns.str.strip()
-    df = df.rename(columns={"Categoria":"Categoría","Comisaria":"Comisaría","Camara del Evento":"Cámara del Evento"})
-    df["Marca temporal"] = pd.to_datetime(df["Marca temporal"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
-    df = df.dropna(subset=["Marca temporal"])
-    df["Hour"]    = df["Marca temporal"].dt.hour
-    df["Weekday"] = df["Marca temporal"].dt.dayofweek
+    df = df.rename(columns={"Categoria":"Categoría","Comisaria":"Comisaría","Camara del Evento":"Cámara"})
+    df["ts"] = pd.to_datetime(df["Marca temporal"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
+    df = df.dropna(subset=["ts"])
+    df["hora"]    = df["ts"].dt.hour
+    df["weekday"] = df["ts"].dt.dayofweek
+    df["fecha"]   = df["ts"].dt.date
+    df["semana"]  = df["ts"].dt.isocalendar().week.astype(int)
+    df["mes"]     = df["ts"].dt.to_period("M").astype(str)
 
-    def get_turno(h, wd):
+    def turno(h, wd):
         if wd < 5:
-            if 6 <= h < 14:    return "Turno Mañana"
-            elif 14 <= h < 22: return "Turno Tarde"
-            else:               return "Turno Noche"
-        else:
-            return "Turno Mañana" if 6 <= h < 18 else "Turno Noche"
+            if 6  <= h < 14: return "Mañana"
+            if 14 <= h < 22: return "Tarde"
+            return "Noche"
+        return "Mañana" if 6 <= h < 18 else "Noche"
 
-    df["Turno"]    = df.apply(lambda r: get_turno(r["Hour"], r["Weekday"]), axis=1)
-    dia_map = {0:"1-Lunes",1:"2-Martes",2:"3-Miércoles",3:"4-Jueves",4:"5-Viernes",5:"6-Sábado",6:"7-Domingo"}
-    df["Dia Semana"] = df["Weekday"].map(dia_map)
-    df["Tipo Dia"]   = df["Weekday"].apply(lambda x: "Lu - Vie" if x < 5 else "Fin de Semana")
+    df["Turno"]   = df.apply(lambda r: turno(r["hora"], r["weekday"]), axis=1)
+    df["DiaNom"]  = df["weekday"].map({0:"Lun",1:"Mar",2:"Mié",3:"Jue",4:"Vie",5:"Sáb",6:"Dom"})
+    df["TipoDia"] = df["weekday"].apply(lambda x: "Semana" if x < 5 else "Fin de semana")
 
-    def get_franja(h):
-        franjas = ["1-00:00-03:00","2-03:00-06:00","3-06:00-09:00","4-09:00-12:00",
-                   "5-12:00-15:00","6-15:00-18:00","7-18:00-21:00","8-21:00-00:00"]
-        return franjas[min(h//3,7)]
-    df["Franja"] = df["Hour"].apply(get_franja)
+    def franja(h):
+        labels = ["00-03","03-06","06-09","09-12","12-15","15-18","18-21","21-00"]
+        return labels[min(h//3, 7)]
+    df["Franja"] = df["hora"].apply(franja)
 
+    # Subcategoría unificada
     if "Subcategoria" not in df.columns:
-        subcats = [c for c in df.columns if c.startswith("Subcategoria ")]
-        df["Subcategoria"] = df[subcats].replace("", pd.NA).bfill(axis=1).iloc[:,0].fillna("")
+        sc = [c for c in df.columns if c.startswith("Subcategoria ")]
+        df["Subcategoria"] = df[sc].replace("", pd.NA).bfill(axis=1).iloc[:,0].fillna("")
     df["Subcategoria"] = df["Subcategoria"].fillna("").str.strip()
-    df["Con Cámara"]   = df["¿Se ve por cámara?"].str.upper().str.strip() == "SI"
+    df["con_camara"]   = df["¿Se ve por cámara?"].str.upper().str.strip() == "SI"
+
+    # Índice de riesgo por categoría (definido manualmente)
+    riesgo_map = {
+        "Robo":3,"Hurto":2,"Heridos":5,"Homicidio":5,"Obito":5,
+        "Violencia":4,"Persecución":3,"Accidente de tránsito":2,
+        "Conflicto":2,"Incendios":3,"Otros":1
+    }
+    df["riesgo"] = df["Categoría"].map(riesgo_map).fillna(1)
     return df
 
-with st.spinner("Cargando datos..."):
+with st.spinner(""):
     try:
-        df = load_data()
+        df = load()
     except Exception as e:
-        st.error(f"❌ Error al cargar datos: {e}")
+        st.error(f"Error cargando datos: {e}")
         st.stop()
 
-min_date = df["Marca temporal"].min().date()
-max_date = df["Marca temporal"].max().date()
+min_d = df["fecha"].min()
+max_d = df["fecha"].max()
 
-# ─── HELPERS ──────────────────────────────────────────────────────────────────
-def render_kpi(label, value_str, delta_val, delta_str):
-    cls   = "kpi-delta-pos" if delta_val > 0 else ("kpi-delta-neg" if delta_val < 0 else "kpi-delta-neu")
-    arrow = "▲" if delta_val > 0 else ("▼" if delta_val < 0 else "●")
+# ── SIDEBAR FILTROS ────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown(f"<div style='font-size:1rem;font-weight:700;color:{TEXT};margin-bottom:14px;'>⚙️ Filtros</div>", unsafe_allow_html=True)
+
+    rango = st.date_input("Período", value=(max_d.replace(day=1), max_d),
+                          min_value=min_d, max_value=max_d, format="DD/MM/YYYY")
+    cats   = st.multiselect("Categoría", sorted(df["Categoría"].dropna().unique()), default=[])
+    coms   = st.multiselect("Comisaría",  sorted(df["Comisaría"].dropna().unique()),  default=[])
+    turnos = st.multiselect("Turno",      sorted(df["Turno"].dropna().unique()),      default=[])
+
+    st.markdown("---")
+    st.markdown(f"<div style='font-size:.75rem;color:{MUTED};'>Datos actualizados cada 5 min</div>", unsafe_allow_html=True)
+
+# ── FILTRADO ───────────────────────────────────────────────────────────────────
+if isinstance(rango, tuple) and len(rango) == 2:
+    sd, ed = rango
+elif isinstance(rango, tuple) and len(rango) == 1:
+    sd = ed = rango[0]
+else:
+    sd = ed = rango
+
+days     = (ed - sd).days + 1
+prev_ed  = sd - timedelta(days=1)
+prev_sd  = prev_ed - timedelta(days=days-1)
+
+def aplicar_filtros(frame, d0, d1):
+    m = (frame["fecha"] >= d0) & (frame["fecha"] <= d1)
+    if cats:   m &= frame["Categoría"].isin(cats)
+    if coms:   m &= frame["Comisaría"].isin(coms)
+    if turnos: m &= frame["Turno"].isin(turnos)
+    return frame[m].copy()
+
+dfc  = aplicar_filtros(df, sd, ed)
+dfp  = aplicar_filtros(df, prev_sd, prev_ed)
+
+n_cur   = len(dfc)
+n_prev  = len(dfp)
+d_pct   = ((n_cur - n_prev) / n_prev * 100) if n_prev else 0
+cam_pct = dfc["con_camara"].mean()*100 if n_cur else 0
+cam_prev= dfp["con_camara"].mean()*100 if len(dfp) else 0
+d_cam   = cam_pct - cam_prev
+riesgo_med  = dfc["riesgo"].mean() if n_cur else 0
+riesgo_prev = dfp["riesgo"].mean() if len(dfp) else 0
+d_riesgo    = riesgo_med - riesgo_prev
+hora_pico   = dfc["hora"].mode()[0] if n_cur else 0
+cat_top     = dfc["Categoría"].value_counts().index[0] if n_cur else "—"
+
+# ── HELPERS ────────────────────────────────────────────────────────────────────
+def kpi(icon, label, val, delta, sub="", invert=False):
+    if delta > 0:
+        cls = "kpi-d-neg" if invert else "kpi-d-pos"
+        arr = "▲"
+    elif delta < 0:
+        cls = "kpi-d-pos" if invert else "kpi-d-neg"
+        arr = "▼"
+    else:
+        cls, arr = "kpi-d-neu", "●"
     st.markdown(f"""
-    <div class="kpi-card">
+    <div class="kpi">
+        <div class="kpi-icon">{icon}</div>
         <div class="kpi-label">{label}</div>
-        <div class="kpi-value">{value_str}</div>
-        <div class="{cls}">{arrow} {delta_str}</div>
+        <div class="kpi-val">{val}</div>
+        <div class="{cls}">{arr} {abs(delta):.1f}% vs período anterior</div>
+        {"<div class='kpi-sub'>"+sub+"</div>" if sub else ""}
     </div>""", unsafe_allow_html=True)
 
-def render_header(titulo):
-    c_left, c_mid, c_right = st.columns([1, 6, 1])
-    with c_left:
-        st.markdown("<div style='display:flex;align-items:center;justify-content:center;height:100%;padding-top:6px;'>", unsafe_allow_html=True)
-        if os.path.exists("logo_izquierda.png"):
-            st.image("logo_izquierda.png", width=72)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with c_mid:
-        st.markdown(f'<div class="main-header"><div class="header-title">{titulo}</div></div>', unsafe_allow_html=True)
-    with c_right:
-        st.markdown("<div style='display:flex;align-items:center;justify-content:center;height:100%;padding-top:6px;'>", unsafe_allow_html=True)
-        if os.path.exists("logo_derecha.png"):
-            st.image("logo_derecha.png", width=72)
-        st.markdown("</div>", unsafe_allow_html=True)
+def card(title, icon=""):
+    st.markdown(f'<div class="card"><div class="card-title"><span>{icon}</span>{title}</div>', unsafe_allow_html=True)
 
-# ─── GRÁFICOS ─────────────────────────────────────────────────────────────────
-def top5_bar(data_series, title):
-    top = data_series.value_counts().head(5).reset_index()
-    top.columns = ["label","n"]
-    top = top.sort_values("n")
-    fig = go.Figure(go.Bar(
-        x=top["n"], y=top["label"], orientation="h",
-        marker=dict(color=top["n"], colorscale=[[0,TEAL_LIGHT],[1,TEAL_DARK]],
-                    showscale=False, line=dict(color="rgba(255,255,255,0.08)",width=1)),
-        text=top["n"], textposition="outside",
-        textfont=dict(size=12,color="#e2e8f0"),
-        hovertemplate="%{y}: <b>%{x}</b><extra></extra>"
-    ))
-    fig.update_layout(
-        **CHART_LAYOUT,
-        title=dict(text=title, font=dict(size=13,color="#e2e8f0",weight=700)),
-        height=310,
-        xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
-        yaxis=dict(showgrid=False, tickfont=dict(size=12,color="#e2e8f0")),
-        bargap=0.3,
-    )
-    return fig
+def end_card():
+    st.markdown('</div>', unsafe_allow_html=True)
 
-def render_heatmap(df_filt):
-    hm    = df_filt.groupby(["Dia Semana","Franja"]).size().reset_index(name="n")
-    pivot = hm.pivot(index="Dia Semana", columns="Franja", values="n").fillna(0)
-    pivot = pivot.reindex(sorted(pivot.index))
-    all_f = [f"{i+1}-"+s for i,s in enumerate(
-        ["00:00-03:00","03:00-06:00","06:00-09:00","09:00-12:00",
-         "12:00-15:00","15:00-18:00","18:00-21:00","21:00-00:00"])]
-    for f in all_f:
-        if f not in pivot.columns: pivot[f] = 0
-    pivot     = pivot[sorted(pivot.columns)]
-    dias_y    = [d.split("-",1)[1] for d in pivot.index]
-    franjas_x = [f.split("-",1)[1] for f in pivot.columns]
-    fig = go.Figure(go.Heatmap(
-        z=pivot.values, x=franjas_x, y=dias_y,
-        colorscale=[[0,"#0d1f3c"],[0.5,"#0a4a99"],[1,"#1f7ec9"]],
-        showscale=False,
-        hovertemplate="<b>%{y}</b> · %{x}<br>Novedades: <b>%{z}</b><extra></extra>"
-    ))
-    fig.update_layout(
-        **CHART_LAYOUT, height=250,
-        xaxis=dict(side="top", showgrid=False, tickfont=dict(size=10,color="#e2e8f0")),
-        yaxis=dict(showgrid=False, tickfont=dict(size=10,color="#e2e8f0")),
-    )
-    return fig
+# ── TOPBAR ─────────────────────────────────────────────────────────────────────
+c_logo, c_title, c_badge = st.columns([1, 7, 2])
+with c_logo:
+    if os.path.exists("logo_izquierda.png"): st.image("logo_izquierda.png", width=60)
+with c_title:
+    st.markdown(f"""
+    <div class="topbar">
+        <div>
+            <div class="topbar-title">Centro de Operaciones Lomas &nbsp;·&nbsp; Análisis Operativo</div>
+            <div class="topbar-sub">Período: {sd.strftime('%d %b %Y')} → {ed.strftime('%d %b %Y')} &nbsp;·&nbsp; {days} días</div>
+        </div>
+    </div>""", unsafe_allow_html=True)
+with c_badge:
+    if os.path.exists("logo_derecha.png"): st.image("logo_derecha.png", width=60)
 
-def render_linea(df_cur, df_prev):
-    daily_cur  = df_cur.groupby(df_cur["Marca temporal"].dt.date).size().reset_index(name="n")
-    daily_prev = df_prev.groupby(df_prev["Marca temporal"].dt.date).size().reset_index(name="n")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=daily_cur["Marca temporal"].astype(str), y=daily_cur["n"],
-        name="Novedades", line=dict(color=TEAL_MED,width=2.5,shape="spline"),
-        mode="lines+markers", marker=dict(size=5,color=TEAL_MED),
-        hovertemplate="%{x}<br>Novedades: <b>%{y}</b><extra></extra>"
-    ))
-    if len(daily_prev) > 0:
-        x_prev = daily_cur["Marca temporal"].astype(str).values[:len(daily_prev)]
-        fig.add_trace(go.Scatter(
-            x=x_prev, y=daily_prev["n"].values[:len(x_prev)],
-            name="Período anterior",
-            line=dict(color=TEAL_LIGHT,width=1.5,dash="dot",shape="spline"),
-            mode="lines+markers", marker=dict(size=4,color=TEAL_LIGHT),
-            hovertemplate="Anterior: <b>%{y}</b><extra></extra>"
-        ))
-    fig.update_layout(
-        **CHART_LAYOUT, height=320,
-        legend=dict(orientation="h", y=1.12, x=0, font=dict(size=11,color="#e2e8f0")),
-        xaxis=dict(showgrid=False, tickangle=-30, tickfont=dict(size=10,color="#e2e8f0")),
-        yaxis=dict(showgrid=True, gridcolor="rgba(226,232,240,0.08)", zeroline=False,
-                   tickfont=dict(color="#e2e8f0")),
-    )
-    return fig
+# ── ALERTA INTELIGENTE ─────────────────────────────────────────────────────────
+if n_cur > 0:
+    cat_alerta = dfc["Categoría"].value_counts().index[0]
+    n_alerta   = dfc["Categoría"].value_counts().iloc[0]
+    if d_pct > 20:
+        st.markdown(f'<div class="alert">🚨 <b>Alerta:</b> Las novedades aumentaron un <b>{d_pct:.1f}%</b> respecto al período anterior. Categoría más afectada: <b>{cat_alerta}</b> ({n_alerta} casos).</div>', unsafe_allow_html=True)
+    elif d_pct < -20:
+        st.markdown(f'<div class="alert-ok">✅ <b>Tendencia positiva:</b> Las novedades bajaron un <b>{abs(d_pct):.1f}%</b> respecto al período anterior.</div>', unsafe_allow_html=True)
 
-def render_pie(df_filt, mode):
-    import math
-    col    = "Turno" if mode == "turno" else "Tipo Dia"
-    data   = df_filt[col].value_counts().reset_index()
-    data.columns = [col, "n"]
-    colors = list(COLOR_TURNO.values()) if mode == "turno" else ["#22d3ee", "#f59e0b"]
-    total  = data["n"].sum()
-
-    fig = go.Figure()
-    fig.add_trace(go.Pie(
-        labels=data[col],
-        values=data["n"],
-        hole=0.38,
-        marker=dict(colors=colors, line=dict(color="#060b17", width=2)),
-        textinfo="none",
-        hovertemplate="%{label}<br><b>%{value}</b> (%{percent})<extra></extra>",
-        sort=False,
-        direction="clockwise",
-    ))
-
-    # Calcular annotations dentro del slice con fondo gris
-    annotations = []
-    angle = 90.0
-    for _, row in data.iterrows():
-        pct       = row["n"] / total
-        sweep     = pct * 360
-        mid_angle = math.radians(angle - sweep / 2)
-        r = 0.62   # radio al centro del anillo (ajustado al hole=0.38)
-        x = 0.5 + r * 0.5 * math.cos(mid_angle)
-        y = 0.5 + r * 0.5 * math.sin(mid_angle)
-        annotations.append(dict(
-            text=f"<b>{row[col]}</b><br>{pct*100:.1f}%",
-            x=x, y=y,
-            xref="paper", yref="paper",
-            showarrow=False,
-            font=dict(size=11, color="#ffffff", family="Barlow, sans-serif"),
-            bgcolor="rgba(30,30,30,0.78)",
-            bordercolor="rgba(255,255,255,0.12)",
-            borderpad=6,
-            borderwidth=1,
-            align="center",
-        ))
-        angle -= sweep
-
-    layout = {**CHART_LAYOUT}
-    layout["margin"] = dict(l=20, r=20, t=10, b=48)
-    fig.update_layout(
-        **layout,
-        height=340,
-        annotations=annotations,
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            x=0.5, y=-0.04,
-            xanchor="center",
-            yanchor="top",
-            font=dict(size=12, color="#e2e8f0"),
-            bgcolor="rgba(0,0,0,0)",
-            borderwidth=0,
-            title_text="",
-        ),
-    )
-    return fig
-
-def render_top_horario(df_filt):
-    top = df_filt["Franja"].value_counts().head(5).reset_index()
-    top.columns = ["label","n"]
-    top["label"] = top["label"].str.split("-", n=1).str[1]
-    top = top.sort_values("n")
-    fig = go.Figure(go.Bar(
-        x=top["n"], y=top["label"], orientation="h",
-        marker=dict(color=top["n"], colorscale=[[0,TEAL_LIGHT],[1,TEAL_DARK]], showscale=False),
-        text=top["n"], textposition="outside",
-        textfont=dict(size=12,color="#e2e8f0"),
-        hovertemplate="%{y}: <b>%{x}</b><extra></extra>"
-    ))
-    fig.update_layout(
-        **CHART_LAYOUT,
-        height=320,
-        # sin título interno — viene del section-title del card
-        xaxis=dict(showgrid=False, showticklabels=False, zeroline=False, title=None),
-        yaxis=dict(showgrid=False, tickfont=dict(size=12,color="#e2e8f0"), title=None),
-        bargap=0.3,
-    )
-    return fig
-
-def render_comisaria_turno(df_filt):
-    ct = df_filt.groupby(["Comisaría","Turno"]).size().reset_index(name="n")
-    turno_order = ["Turno Mañana","Turno Tarde","Turno Noche"]
-    ct["Turno"] = pd.Categorical(ct["Turno"], categories=turno_order, ordered=True)
-    ct = ct.sort_values("Turno")
-    fig = px.bar(ct, x="Comisaría", y="n", color="Turno",
-                 color_discrete_map=COLOR_TURNO, barmode="stack")
-    fig.update_layout(
-        **CHART_LAYOUT,
-        height=320,
-        xaxis=dict(showgrid=False, tickangle=-35,
-                   tickfont=dict(size=9,color="#e2e8f0"),
-                   title=None, showticklabels=True),
-        yaxis=dict(showgrid=True, gridcolor="rgba(226,232,240,0.08)",
-                   zeroline=False, tickfont=dict(color="#e2e8f0"), title=None),
-        legend=dict(
-            orientation="h", y=1.08, x=0,
-            font=dict(size=12, color="#ffffff"),
-            bgcolor="rgba(90,90,90,0.55)",
-            bordercolor="rgba(255,255,255,0.1)", borderwidth=1,
-            title_text=""
-        ),
-        bargap=0.2,
-    )
-    return fig
-
-# ─── TOGGLE TORTA ─────────────────────────────────────────────────────────────
-def pie_toggle_row(key):
-    """Botones Turno/Día alineados a la derecha dentro del card."""
-    mode = st.session_state[f"pie_mode_{key}"]
-    _, col_t, col_d = st.columns([6, 1, 1])
-    with col_t:
-        if st.button("Turno", key=f"btn_turno_{key}",
-                     type="primary" if mode=="turno" else "secondary"):
-            st.session_state[f"pie_mode_{key}"] = "turno"
-            st.rerun()
-    with col_d:
-        if st.button("Día", key=f"btn_dia_{key}",
-                     type="primary" if mode=="dia" else "secondary"):
-            st.session_state[f"pie_mode_{key}"] = "dia"
-            st.rerun()
-    return mode
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PÁGINA 1 – RESUMEN
-# ══════════════════════════════════════════════════════════════════════════════
-if st.session_state.pagina == "resumen":
-
-    render_header("Resumen mensual novedades")
-
-    # Filtros (primero capturamos fecha y turno para filtrar antes de dibujar botones)
-    fc1, fc2, fc_dl, fc_nav = st.columns([3, 1.5, 1.6, 1.4])
-    with fc1:
-        date_range = st.date_input(
-            "Período",
-            value=(max_date.replace(day=1), max_date),
-            min_value=min_date, max_value=max_date, format="DD/MM/YYYY"
-        )
-    with fc2:
-        turnos    = ["Todos"] + sorted(df["Turno"].dropna().unique().tolist())
-        turno_sel = st.selectbox("Turno", turnos)
-
-    # Períodos (calculados antes de renderizar los botones)
-    if isinstance(date_range, tuple) and len(date_range) == 2:
-        start_date, end_date = date_range
-    elif isinstance(date_range, tuple) and len(date_range) == 1:
-        start_date = end_date = date_range[0]
-    else:
-        start_date = end_date = date_range
-
-    period_days = (end_date - start_date).days + 1
-    prev_end    = start_date - timedelta(days=1)
-    prev_start  = prev_end - timedelta(days=period_days - 1)
-
-    def filt_resumen(frame, sd, ed):
-        m = (frame["Marca temporal"].dt.date >= sd) & (frame["Marca temporal"].dt.date <= ed)
-        if turno_sel != "Todos": m &= frame["Turno"] == turno_sel
-        return frame[m].copy()
-
-    df_cur  = filt_resumen(df, start_date, end_date)
-    df_prev = filt_resumen(df, prev_start, prev_end)
-
-    # Botones en la misma fila que los filtros, alineados
+# ── NAV VISTAS ─────────────────────────────────────────────────────────────────
+v1, v2, v3, _, dl_col = st.columns([1.1, 1.1, 1.1, 4, 1.6])
+with v1:
+    if st.button("📊 Ejecutivo", type="primary" if st.session_state.vista=="ejecutiva" else "secondary", use_container_width=True):
+        st.session_state.vista = "ejecutiva"; st.rerun()
+with v2:
+    if st.button("🗺️ Territorial", type="primary" if st.session_state.vista=="territorial" else "secondary", use_container_width=True):
+        st.session_state.vista = "territorial"; st.rerun()
+with v3:
+    if st.button("⏱️ Temporal", type="primary" if st.session_state.vista=="temporal" else "secondary", use_container_width=True):
+        st.session_state.vista = "temporal"; st.rerun()
+with dl_col:
     buf = io.BytesIO()
-    df_cur.drop(columns=["Hour","Weekday","Con Cámara"], errors="ignore").to_excel(buf, index=False, engine="openpyxl")
-    with fc_dl:
-        st.markdown("<label style='visibility:hidden;font-size:.92rem;font-weight:600;'>.</label>", unsafe_allow_html=True)
-        st.download_button(
-            "⬇ Descargar Excel", data=buf.getvalue(),
-            file_name=f"novedades_{start_date}_{end_date}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
-    with fc_nav:
-        st.markdown("<label style='visibility:hidden;font-size:.92rem;font-weight:600;'>.</label>", unsafe_allow_html=True)
-        if st.button("🔍 Ver Detalle →", type="primary", use_container_width=True):
-            st.session_state.pagina = "detalle"
-            st.rerun()
+    dfc.drop(columns=["hora","weekday","riesgo","con_camara"], errors="ignore").to_excel(buf, index=False, engine="openpyxl")
+    st.download_button("⬇ Exportar", data=buf.getvalue(),
+        file_name=f"col_{sd}_{ed}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True)
+
+st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  VISTA EJECUTIVA
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.vista == "ejecutiva":
 
     # KPIs
-    total_cur  = len(df_cur)
-    total_prev = len(df_prev)
-    d_total    = ((total_cur - total_prev) / total_prev * 100) if total_prev else 0
-    cam_cur    = df_cur["Con Cámara"].mean() * 100 if total_cur else 0
-    cam_prev   = df_prev["Con Cámara"].mean() * 100 if total_prev else 0
-    d_cam      = cam_cur - cam_prev
+    k1,k2,k3,k4,k5 = st.columns(5)
+    with k1: kpi("📋","Total Novedades",f"{n_cur:,}", d_pct, invert=True)
+    with k2: kpi("📷","Con Cámara",f"{cam_pct:.1f}%", d_cam, sub=f"{dfc['con_camara'].sum()} eventos")
+    with k3: kpi("⚠️","Índice de Riesgo",f"{riesgo_med:.2f}", d_riesgo, sub="Escala 1–5", invert=True)
+    with k4: kpi("🕐","Hora Pico",f"{hora_pico:02d}:00", 0, sub=f"Franja {hora_pico//3*3:02d}–{hora_pico//3*3+3:02d}hs")
+    with k5: kpi("🔺","Cat. Líder", cat_top, 0, sub=f"{dfc['Categoría'].value_counts().iloc[0]} casos" if n_cur else "")
 
-    k1, k2, _ = st.columns([1.3, 1.3, 5])
-    with k1: render_kpi("% Cámara",        f"{cam_cur:.1f}%", d_cam,   f"{d_cam:+.1f}% vs Período anterior")
-    with k2: render_kpi("Total Novedades", f"{total_cur:,}",  d_total, f"{d_total:+.1f}% vs Período anterior")
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+    # ── Fila 1: Evolución diaria + Mapa de calor riesgo ──
+    col_ev, col_hm = st.columns([3,2])
 
-    # Heatmap
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Distribución por Día y Franja Horaria</div>', unsafe_allow_html=True)
-    st.plotly_chart(render_heatmap(df_cur), use_container_width=True, config={"displayModeBar":False})
-    st.markdown('</div>', unsafe_allow_html=True)
+    with col_ev:
+        card("Evolución Diaria de Novedades","📈")
+        daily_c = dfc.groupby("fecha").size().reset_index(name="n")
+        daily_p = dfp.groupby("fecha").size().reset_index(name="n")
+        fig = go.Figure()
+        # Área sombreada del período anterior
+        if len(daily_p):
+            x_p = daily_c["fecha"].astype(str).values[:len(daily_p)]
+            fig.add_trace(go.Scatter(
+                x=x_p, y=daily_p["n"].values[:len(x_p)],
+                name="Anterior", fill="tozeroy",
+                fillcolor="rgba(100,116,139,0.12)",
+                line=dict(color="rgba(100,116,139,0.4)", width=1, dash="dot"),
+                mode="lines", hovertemplate="Anterior: <b>%{y}</b><extra></extra>"
+            ))
+        fig.add_trace(go.Scatter(
+            x=daily_c["fecha"].astype(str), y=daily_c["n"],
+            name="Actual", fill="tozeroy",
+            fillcolor="rgba(139,92,246,0.15)",
+            line=dict(color=ACCENT, width=2.5, shape="spline"),
+            mode="lines+markers", marker=dict(size=5, color=ACCENT,
+                line=dict(color=BG2, width=1.5)),
+            hovertemplate="%{x}<br><b>%{y} novedades</b><extra></extra>"
+        ))
+        # Media móvil 7d
+        if len(daily_c) >= 7:
+            daily_c["mm7"] = daily_c["n"].rolling(7, min_periods=1).mean()
+            fig.add_trace(go.Scatter(
+                x=daily_c["fecha"].astype(str), y=daily_c["mm7"].round(1),
+                name="Media 7d", line=dict(color=AMBER, width=1.8, dash="dash"),
+                mode="lines", hovertemplate="Media 7d: <b>%{y}</b><extra></extra>"
+            ))
+        fig.update_layout(**CHART, height=260,
+            legend=dict(orientation="h", y=1.1, x=0, font=dict(size=10)),
+            xaxis=dict(showgrid=False, tickangle=-30, tickfont=dict(size=9)),
+            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", zeroline=False))
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar":False})
+        end_card()
 
-    # Línea + Torta
-    col_line, col_pie = st.columns([3, 2])
-    with col_line:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Evolución de Novedades</div>', unsafe_allow_html=True)
-        st.plotly_chart(render_linea(df_cur, df_prev), use_container_width=True, config={"displayModeBar":False})
-        st.markdown('</div>', unsafe_allow_html=True)
+    with col_hm:
+        card("Intensidad por Día × Turno","🌡️")
+        dias_ord  = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"]
+        turn_ord  = ["Mañana","Tarde","Noche"]
+        hm = dfc.groupby(["DiaNom","Turno"]).size().reset_index(name="n")
+        piv = hm.pivot(index="DiaNom", columns="Turno", values="n").fillna(0)
+        piv = piv.reindex(index=[d for d in dias_ord if d in piv.index],
+                          columns=[t for t in turn_ord if t in piv.columns])
+        fig2 = go.Figure(go.Heatmap(
+            z=piv.values, x=list(piv.columns), y=list(piv.index),
+            colorscale=[[0,BG2],[0.4,"#4c1d95"],[1,ACCENT]],
+            showscale=True,
+            colorbar=dict(thickness=10, len=0.8, tickfont=dict(size=9, color=TEXT2)),
+            hovertemplate="<b>%{y} · %{x}</b><br>%{z} novedades<extra></extra>",
+            texttemplate="%{z:.0f}", textfont=dict(size=10, color=TEXT)
+        ))
+        fig2.update_layout(**CHART, height=260,
+            xaxis=dict(showgrid=False, side="top"),
+            yaxis=dict(showgrid=False, autorange="reversed"))
+        st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar":False})
+        end_card()
 
-    with col_pie:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">% Participación por Turno y Día</div>', unsafe_allow_html=True)
-        pie_mode = pie_toggle_row("resumen")
-        st.plotly_chart(render_pie(df_cur, pie_mode), use_container_width=True, config={"displayModeBar":False})
-        st.markdown('</div>', unsafe_allow_html=True)
+    # ── Fila 2: Distribución categorías + Donut turno + Ranking comisarías ──
+    col_cat, col_don, col_rank = st.columns([2.4, 1.5, 2.1])
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+    with col_cat:
+        card("Novedades por Categoría","📂")
+        cat_df = dfc["Categoría"].value_counts().reset_index()
+        cat_df.columns = ["cat","n"]
+        cat_df["pct"] = cat_df["n"] / cat_df["n"].sum() * 100
+        # Unir con riesgo
+        risk_map = {"Robo":3,"Hurto":2,"Heridos":5,"Homicidio":5,"Obito":5,
+                    "Violencia":4,"Persecución":3,"Accidente de tránsito":2,"Conflicto":2,"Incendios":3,"Otros":1}
+        cat_df["riesgo"] = cat_df["cat"].map(risk_map).fillna(1)
+        cat_df = cat_df.sort_values("n", ascending=True)
+        colors_bar = [RED if r>=4 else AMBER if r==3 else ACCENT for r in cat_df["riesgo"]]
+        fig3 = go.Figure(go.Bar(
+            x=cat_df["n"], y=cat_df["cat"], orientation="h",
+            marker=dict(color=colors_bar, line=dict(color="rgba(0,0,0,0)",width=0)),
+            text=[f"{n}  ({p:.0f}%)" for n,p in zip(cat_df["n"],cat_df["pct"])],
+            textposition="outside", textfont=dict(size=10, color=TEXT2),
+            hovertemplate="<b>%{y}</b><br>%{x} novedades<extra></extra>",
+            width=0.6,
+        ))
+        # Leyenda de colores de riesgo
+        for color, label in [(RED,"Alto riesgo"),(AMBER,"Riesgo medio"),(ACCENT,"Bajo riesgo")]:
+            fig3.add_trace(go.Bar(x=[None], y=[None], marker_color=color, name=label, showlegend=True))
+        fig3.update_layout(**CHART, height=300, bargap=0.3,
+            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+            yaxis=dict(showgrid=False, tickfont=dict(size=10)),
+            legend=dict(orientation="h", y=-0.1, x=0, font=dict(size=9)),
+            barmode="overlay")
+        st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar":False})
+        end_card()
 
-    # Top 5
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    b1, b2, b3 = st.columns(3)
-    with b1:
-        st.plotly_chart(top5_bar(df_cur["Categoría"],  "Top 5 por Categoría"),
-                        use_container_width=True, config={"displayModeBar":False})
-    with b2:
-        sub_ne = df_cur[df_cur["Subcategoria"].str.strip() != ""]["Subcategoria"]
-        st.plotly_chart(top5_bar(sub_ne, "Top 5 por Subcategoría"),
-                        use_container_width=True, config={"displayModeBar":False})
-    with b3:
-        st.plotly_chart(top5_bar(df_cur["Comisaría"], "Top 5 por Comisaría"),
-                        use_container_width=True, config={"displayModeBar":False})
-    st.markdown('</div>', unsafe_allow_html=True)
+    with col_don:
+        card("Distribución por Turno","🌙")
+        # Toggle
+        mode = st.session_state["pie_mode"]
+        tc, dc = st.columns(2)
+        with tc:
+            if st.button("Turno", key="pt", type="primary" if mode=="turno" else "secondary", use_container_width=True):
+                st.session_state["pie_mode"] = "turno"; st.rerun()
+        with dc:
+            if st.button("Día", key="pd", type="primary" if mode=="dia" else "secondary", use_container_width=True):
+                st.session_state["pie_mode"] = "dia"; st.rerun()
 
-    st.markdown(f"""
-    <div style="text-align:center;color:#64748b;font-size:.75rem;margin-top:8px;">
-        Centro de Operaciones Lomas · Datos actualizados cada 5 min ·
-        Período: {start_date.strftime('%d/%m/%Y')} al {end_date.strftime('%d/%m/%Y')}
-        ({period_days} días) · Período anterior: {prev_start.strftime('%d/%m/%Y')} al {prev_end.strftime('%d/%m/%Y')}
-    </div>""", unsafe_allow_html=True)
+        col_pie = "Turno" if mode == "turno" else "TipoDia"
+        pie_data = dfc[col_pie].value_counts().reset_index()
+        pie_data.columns = [col_pie, "n"]
+        pie_colors = [ACCENT,"#10b981",AMBER,"#ef4444","#38bdf8"]
+        total_pie  = pie_data["n"].sum()
+
+        fig4 = go.Figure(go.Pie(
+            labels=pie_data[col_pie], values=pie_data["n"], hole=0.55,
+            marker=dict(colors=pie_colors[:len(pie_data)], line=dict(color=BG,width=3)),
+            textinfo="none",
+            hovertemplate="%{label}<br><b>%{value}</b> (%{percent})<extra></extra>",
+            sort=True, direction="clockwise",
+        ))
+        # Annotations con fondo
+        ann = []
+        ang = 90.0
+        for _, row in pie_data.iterrows():
+            p  = row["n"] / total_pie
+            sw = p * 360
+            ma = math.radians(ang - sw/2)
+            r  = 0.65
+            ann.append(dict(
+                text=f"<b>{row[col_pie]}</b><br>{p*100:.0f}%",
+                x=0.5+r*0.5*math.cos(ma), y=0.5+r*0.5*math.sin(ma),
+                xref="paper", yref="paper", showarrow=False,
+                font=dict(size=9, color="#fff"),
+                bgcolor="rgba(20,20,40,0.82)",
+                bordercolor="rgba(255,255,255,0.1)",
+                borderpad=4, borderwidth=1, align="center",
+            ))
+            ang -= sw
+        # Valor en el centro
+        ann.append(dict(
+            text=f"<b>{total_pie:,}</b><br><span style='font-size:9px'>Total</span>",
+            x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False,
+            font=dict(size=13, color=TEXT), align="center",
+        ))
+        lyt = {**CHART}
+        lyt["margin"] = dict(l=10, r=10, t=10, b=30)
+        fig4.update_layout(**lyt, height=280, annotations=ann,
+            showlegend=True,
+            legend=dict(orientation="h", x=0.5, y=-0.04, xanchor="center",
+                        font=dict(size=9, color=TEXT2), bgcolor="rgba(0,0,0,0)"))
+        st.plotly_chart(fig4, use_container_width=True, config={"displayModeBar":False})
+        end_card()
+
+    with col_rank:
+        card("Ranking de Comisarías","🏆")
+        com_df = dfc["Comisaría"].value_counts().reset_index()
+        com_df.columns = ["com","n"]
+        com_df["rank"] = range(1, len(com_df)+1)
+        com_df = com_df.head(10).sort_values("n", ascending=True)
+        max_n  = com_df["n"].max()
+        bar_colors = [RED if r==1 else AMBER if r==2 else ACCENT if r==3 else "#4c1d95"
+                      for r in com_df["rank"].iloc[::-1]][::-1]
+        fig5 = go.Figure(go.Bar(
+            x=com_df["n"], y=com_df["com"], orientation="h",
+            marker=dict(color=bar_colors, line=dict(color="rgba(0,0,0,0)",width=0)),
+            text=com_df["n"], textposition="outside",
+            textfont=dict(size=10, color=TEXT2),
+            hovertemplate="<b>%{y}</b><br>%{x} novedades<extra></extra>",
+            width=0.65,
+        ))
+        fig5.update_layout(**CHART, height=300, bargap=0.28,
+            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+            yaxis=dict(showgrid=False, tickfont=dict(size=10)))
+        st.plotly_chart(fig5, use_container_width=True, config={"displayModeBar":False})
+        end_card()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PÁGINA 2 – DETALLE
+#  VISTA TERRITORIAL
 # ══════════════════════════════════════════════════════════════════════════════
-else:
+elif st.session_state.vista == "territorial":
 
-    render_header("Detalle mensual novedades")
+    # KPIs territoriales
+    k1,k2,k3,k4 = st.columns(4)
+    com_top = dfc["Comisaría"].value_counts()
+    with k1: kpi("🏢","Comisarías activas", str(dfc["Comisaría"].nunique()), 0)
+    with k2: kpi("📍","Comisaría líder", com_top.index[0] if n_cur else "—", 0, sub=f"{com_top.iloc[0]} casos" if n_cur else "")
+    with k3:
+        promedio_com = n_cur / dfc["Comisaría"].nunique() if dfc["Comisaría"].nunique() else 0
+        kpi("📊","Promedio por Comisaría", f"{promedio_com:.0f}", 0)
+    with k4:
+        cat_cam = dfc[dfc["con_camara"]]["Categoría"].value_counts().index[0] if dfc["con_camara"].sum() else "—"
+        kpi("📷","Cat. más filmada", cat_cam, 0)
 
-    # Filtros
-    fc1, fc2, fc3, fc4, fc5 = st.columns([2.5, 1.3, 1.5, 1.3, 1.3])
-    with fc1:
-        date_range2 = st.date_input(
-            "Período",
-            value=(max_date.replace(day=1), max_date),
-            min_value=min_date, max_value=max_date, format="DD/MM/YYYY", key="dr2"
-        )
-    with fc2:
-        cats2    = ["Todas"] + sorted(df["Categoría"].dropna().unique().tolist())
-        cat_sel2 = st.selectbox("Categoría", cats2, key="cat2")
-    with fc3:
-        if cat_sel2 != "Todas":
-            subs_d = df[df["Categoría"]==cat_sel2]["Subcategoria"]
-            subs_d = subs_d[subs_d.str.strip()!=""].dropna().unique().tolist()
-        else:
-            subs_d = df["Subcategoria"][df["Subcategoria"].str.strip()!=""].dropna().unique().tolist()
-        sub_sel2 = st.selectbox("Subcategoría", ["Todas"]+sorted(subs_d), key="sub2")
-    with fc4:
-        turno_sel2 = st.selectbox("Turno", ["Todos"]+sorted(df["Turno"].dropna().unique().tolist()), key="turno2")
-    with fc5:
-        com_sel2   = st.selectbox("Comisaría", ["Todas"]+sorted(df["Comisaría"].dropna().unique().tolist()), key="com2")
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
-    # Períodos
-    if isinstance(date_range2, tuple) and len(date_range2) == 2:
-        start_date2, end_date2 = date_range2
-    elif isinstance(date_range2, tuple) and len(date_range2) == 1:
-        start_date2 = end_date2 = date_range2[0]
-    else:
-        start_date2 = end_date2 = date_range2
+    col_a, col_b = st.columns([3,2])
 
-    period_days2 = (end_date2 - start_date2).days + 1
-    prev_end2    = start_date2 - timedelta(days=1)
-    prev_start2  = prev_end2 - timedelta(days=period_days2 - 1)
+    with col_a:
+        card("Novedades por Comisaría y Categoría","🗂️")
+        ct = dfc.groupby(["Comisaría","Categoría"]).size().reset_index(name="n")
+        top_cats = dfc["Categoría"].value_counts().head(5).index.tolist()
+        ct_filt  = ct[ct["Categoría"].isin(top_cats)]
+        fig6 = px.bar(ct_filt, x="Comisaría", y="n", color="Categoría",
+                      color_discrete_sequence=SEQ_DIV, barmode="stack")
+        fig6.update_layout(**CHART, height=300,
+            xaxis=dict(showgrid=False, tickangle=-40, tickfont=dict(size=9), title=None),
+            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", zeroline=False, title=None),
+            legend=dict(orientation="h", y=1.12, x=0, font=dict(size=9), title_text="", bgcolor="rgba(0,0,0,0)"))
+        st.plotly_chart(fig6, use_container_width=True, config={"displayModeBar":False})
+        end_card()
 
-    def filt_detalle(frame, sd, ed):
-        m = (frame["Marca temporal"].dt.date >= sd) & (frame["Marca temporal"].dt.date <= ed)
-        if turno_sel2 != "Todos":  m &= frame["Turno"]        == turno_sel2
-        if cat_sel2   != "Todas":  m &= frame["Categoría"]    == cat_sel2
-        if sub_sel2   != "Todas":  m &= frame["Subcategoria"] == sub_sel2
-        if com_sel2   != "Todas":  m &= frame["Comisaría"]    == com_sel2
-        return frame[m].copy()
+    with col_b:
+        card("% Cámara por Comisaría","🎥")
+        cam_com = dfc.groupby("Comisaría")["con_camara"].agg(["sum","count"]).reset_index()
+        cam_com.columns = ["Comisaría","con_cam","total"]
+        cam_com["pct"] = cam_com["con_cam"] / cam_com["total"] * 100
+        cam_com = cam_com.sort_values("pct", ascending=True).tail(12)
+        fig7 = go.Figure(go.Bar(
+            x=cam_com["pct"], y=cam_com["Comisaría"], orientation="h",
+            marker=dict(
+                color=cam_com["pct"],
+                colorscale=[[0,"#1e1b4b"],[0.5,ACCENT],[1,GREEN]],
+                showscale=False,
+                line=dict(color="rgba(0,0,0,0)",width=0)
+            ),
+            text=[f"{p:.0f}%" for p in cam_com["pct"]],
+            textposition="outside", textfont=dict(size=10, color=TEXT2),
+            hovertemplate="<b>%{y}</b><br>%{x:.1f}% con cámara<extra></extra>",
+            width=0.65,
+        ))
+        fig7.update_layout(**CHART, height=300, bargap=0.28,
+            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False, range=[0,110]),
+            yaxis=dict(showgrid=False, tickfont=dict(size=10)))
+        st.plotly_chart(fig7, use_container_width=True, config={"displayModeBar":False})
+        end_card()
 
-    df_cur2  = filt_detalle(df, start_date2, end_date2)
-    df_prev2 = filt_detalle(df, prev_start2, prev_end2)
+    # Matriz comisaría × día
+    card("Mapa de Calor: Comisaría × Día de Semana","🌐")
+    dias_ord = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"]
+    mat = dfc.groupby(["Comisaría","DiaNom"]).size().reset_index(name="n")
+    piv2 = mat.pivot(index="Comisaría", columns="DiaNom", values="n").fillna(0)
+    piv2 = piv2.reindex(columns=[d for d in dias_ord if d in piv2.columns])
+    fig8 = go.Figure(go.Heatmap(
+        z=piv2.values, x=list(piv2.columns), y=list(piv2.index),
+        colorscale=[[0,BG2],[0.5,"#4c1d95"],[1,ACCENT]],
+        showscale=True, colorbar=dict(thickness=10, tickfont=dict(size=9,color=TEXT2)),
+        hovertemplate="<b>%{y}</b> · <b>%{x}</b><br>%{z:.0f} novedades<extra></extra>",
+        texttemplate="%{z:.0f}", textfont=dict(size=9, color=TEXT)
+    ))
+    fig8.update_layout(**CHART, height=350,
+        xaxis=dict(showgrid=False, side="top"),
+        yaxis=dict(showgrid=False))
+    st.plotly_chart(fig8, use_container_width=True, config={"displayModeBar":False})
+    end_card()
 
-    # KPI + botones a la derecha
-    total_cur2  = len(df_cur2)
-    total_prev2 = len(df_prev2)
-    d_total2    = ((total_cur2 - total_prev2) / total_prev2 * 100) if total_prev2 else 0
 
-    kd1, kd_sp, kd_back, kd_dl = st.columns([1.4, 3.5, 1.1, 1.5])
-    with kd1:
-        render_kpi("Total Novedades", f"{total_cur2:,}", d_total2,
-                   f"{d_total2:+.1f}% vs Período anterior")
-    with kd_sp:
-        pass
-    with kd_back:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        if st.button("← Volver", type="secondary", use_container_width=True):
-            st.session_state.pagina = "resumen"
-            st.rerun()
-    with kd_dl:
-        buf2 = io.BytesIO()
-        df_cur2.drop(columns=["Hour","Weekday","Con Cámara"], errors="ignore").to_excel(buf2, index=False, engine="openpyxl")
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        st.download_button(
-            "⬇ Descargar Excel", data=buf2.getvalue(),
-            file_name=f"novedades_detalle_{start_date2}_{end_date2}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl2", use_container_width=True
-        )
+# ══════════════════════════════════════════════════════════════════════════════
+#  VISTA TEMPORAL
+# ══════════════════════════════════════════════════════════════════════════════
+elif st.session_state.vista == "temporal":
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+    k1,k2,k3,k4 = st.columns(4)
+    franja_top = dfc["Franja"].value_counts().index[0] if n_cur else "—"
+    dia_top    = dfc["DiaNom"].value_counts().index[0] if n_cur else "—"
+    pct_noche  = (dfc["Turno"]=="Noche").mean()*100 if n_cur else 0
+    with k1: kpi("⏰","Franja pico", franja_top+"hs", 0)
+    with k2: kpi("📅","Día más activo", dia_top, 0)
+    with k3: kpi("🌙","% Turno Noche", f"{pct_noche:.1f}%", 0)
+    with k4:
+        fin_sem_pct = (dfc["TipoDia"]=="Fin de semana").mean()*100 if n_cur else 0
+        kpi("📆","% Fin de semana", f"{fin_sem_pct:.1f}%", 0)
 
-    # Heatmap
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Distribución por Día y Franja Horaria</div>', unsafe_allow_html=True)
-    st.plotly_chart(render_heatmap(df_cur2), use_container_width=True, config={"displayModeBar":False})
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
-    # Línea + Top Horario
-    col_l2, col_t2 = st.columns([3, 2])
-    with col_l2:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Evolución de Novedades</div>', unsafe_allow_html=True)
-        st.plotly_chart(render_linea(df_cur2, df_prev2), use_container_width=True, config={"displayModeBar":False})
-        st.markdown('</div>', unsafe_allow_html=True)
+    col_p, col_q = st.columns([2,1])
 
-    with col_t2:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Top 5 por Rango Horario</div>', unsafe_allow_html=True)
-        st.plotly_chart(render_top_horario(df_cur2), use_container_width=True, config={"displayModeBar":False})
-        st.markdown('</div>', unsafe_allow_html=True)
+    with col_p:
+        card("Distribución por Franja Horaria (24hs)","⏱️")
+        franjas_ord = ["00-03","03-06","06-09","09-12","12-15","15-18","18-21","21-00"]
+        fh = dfc.groupby("Franja").size().reset_index(name="n")
+        fh["Franja"] = pd.Categorical(fh["Franja"], categories=franjas_ord, ordered=True)
+        fh = fh.sort_values("Franja")
+        fig9 = go.Figure(go.Bar(
+            x=fh["Franja"], y=fh["n"],
+            marker=dict(
+                color=fh["n"],
+                colorscale=[[0,"#1e1b4b"],[0.6,ACCENT],[1,RED]],
+                showscale=False,
+                line=dict(color="rgba(0,0,0,0)",width=0)
+            ),
+            text=fh["n"], textposition="outside",
+            textfont=dict(size=10, color=TEXT2),
+            hovertemplate="<b>%{x}</b><br>%{y} novedades<extra></extra>",
+            width=0.7,
+        ))
+        # Marcar noche con rectángulo
+        fig9.add_vrect(x0=-0.5, x1=0.5, fillcolor="rgba(139,92,246,0.08)", line_width=0, annotation_text="Noche", annotation_position="top left", annotation_font_size=9)
+        fig9.add_vrect(x0=6.5, x1=7.5, fillcolor="rgba(139,92,246,0.08)", line_width=0)
+        fig9.update_layout(**CHART, height=280, bargap=0.18,
+            xaxis=dict(showgrid=False, tickfont=dict(size=10)),
+            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", zeroline=False))
+        st.plotly_chart(fig9, use_container_width=True, config={"displayModeBar":False})
+        end_card()
 
-    # Torta + Comisaría x Turno
-    col_p2, col_b2 = st.columns([2, 3])
-    with col_p2:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">% Participación por Turno y Día</div>', unsafe_allow_html=True)
-        pie_mode2 = pie_toggle_row("detalle")
-        st.plotly_chart(render_pie(df_cur2, pie_mode2), use_container_width=True, config={"displayModeBar":False})
-        st.markdown('</div>', unsafe_allow_html=True)
+    with col_q:
+        card("Novedades por Día de Semana","📅")
+        dias_ord2 = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"]
+        dw = dfc.groupby("DiaNom").size().reset_index(name="n")
+        dw["DiaNom"] = pd.Categorical(dw["DiaNom"], categories=dias_ord2, ordered=True)
+        dw = dw.sort_values("DiaNom")
+        fig10 = go.Figure(go.Bar(
+            x=dw["n"], y=dw["DiaNom"], orientation="h",
+            marker=dict(color=dw["n"], colorscale=[[0,"#2e1065"],[1,ACCENT]],
+                        showscale=False, line=dict(color="rgba(0,0,0,0)",width=0)),
+            text=dw["n"], textposition="outside",
+            textfont=dict(size=10, color=TEXT2),
+            hovertemplate="<b>%{y}</b><br>%{x} novedades<extra></extra>",
+            width=0.6,
+        ))
+        fig10.update_layout(**CHART, height=280, bargap=0.28,
+            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+            yaxis=dict(showgrid=False, tickfont=dict(size=11), autorange="reversed"))
+        st.plotly_chart(fig10, use_container_width=True, config={"displayModeBar":False})
+        end_card()
 
-    with col_b2:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Novedades por Comisaría y Turno</div>', unsafe_allow_html=True)
-        st.plotly_chart(render_comisaria_turno(df_cur2), use_container_width=True, config={"displayModeBar":False})
-        st.markdown('</div>', unsafe_allow_html=True)
+    # Evolución semanal por categoría (top 5)
+    card("Tendencia Semanal por Categoría (Top 5)","📉")
+    top5_cats = dfc["Categoría"].value_counts().head(5).index.tolist()
+    wk = dfc[dfc["Categoría"].isin(top5_cats)].groupby(["mes","Categoría"]).size().reset_index(name="n")
+    fig11 = px.line(wk, x="mes", y="n", color="Categoría",
+                    color_discrete_sequence=SEQ_DIV, markers=True)
+    fig11.update_traces(line_width=2, marker_size=6)
+    fig11.update_layout(**CHART, height=280,
+        xaxis=dict(showgrid=False, tickangle=-30, tickfont=dict(size=9), title=None),
+        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", zeroline=False, title=None),
+        legend=dict(orientation="h", y=1.12, x=0, font=dict(size=9), title_text="", bgcolor="rgba(0,0,0,0)"))
+    st.plotly_chart(fig11, use_container_width=True, config={"displayModeBar":False})
+    end_card()
 
-    st.markdown(f"""
-    <div style="text-align:center;color:#64748b;font-size:.75rem;margin-top:8px;">
-        Centro de Operaciones Lomas · Datos actualizados cada 5 min ·
-        Período: {start_date2.strftime('%d/%m/%Y')} al {end_date2.strftime('%d/%m/%Y')}
-        ({period_days2} días) · Período anterior: {prev_start2.strftime('%d/%m/%Y')} al {prev_end2.strftime('%d/%m/%Y')}
-    </div>""", unsafe_allow_html=True)
+# ── FOOTER ─────────────────────────────────────────────────────────────────────
+st.markdown(f"""
+<div style="text-align:center;color:{MUTED};font-size:.72rem;margin-top:12px;padding:8px;">
+    COL · Análisis Operativo &nbsp;·&nbsp; {sd.strftime('%d/%m/%Y')} → {ed.strftime('%d/%m/%Y')} &nbsp;·&nbsp;
+    {n_cur:,} registros en vista &nbsp;·&nbsp; Datos actualizados cada 5 min
+</div>""", unsafe_allow_html=True)
