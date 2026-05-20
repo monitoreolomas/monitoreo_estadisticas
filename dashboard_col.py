@@ -698,22 +698,7 @@ elif st.session_state.vista == "cgm":
         st.plotly_chart(fig_c4, use_container_width=True, config={"displayModeBar":False})
         end_card()
 
-    # Fila 3: Evolución mensual por CGM (top 6)
-    card("Evolución Mensual de Novedades por CGM (Top 6)","📈")
-    top6_cgm = dfc["CGM"].value_counts().head(6).index.tolist()
-    ev_cgm   = dfc[dfc["CGM"].isin(top6_cgm)].groupby(["mes","CGM"]).size().reset_index(name="n")
-    fig_c5 = px.line(ev_cgm, x="mes", y="n", color="CGM",
-                     color_discrete_sequence=[ACCENT,"#a78bfa",GREEN,AMBER,RED,"#38bdf8"],
-                     markers=True)
-    fig_c5.update_traces(line_width=2.2, marker_size=6)
-    fig_c5.update_layout(**CHART, height=270,
-        xaxis=dict(showgrid=False, tickangle=-30, tickfont=dict(size=9), title=None),
-        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", zeroline=False, title=None),
-        legend=dict(orientation="h", y=1.12, x=0, font=dict(size=9), title_text="", bgcolor="rgba(0,0,0,0)"))
-    st.plotly_chart(fig_c5, use_container_width=True, config={"displayModeBar":False})
-    end_card()
-
-    # Fila 4: % Cámara por CGM + Mapa calor CGM × día
+    # Fila 3: % Cámara por CGM + Mapa calor CGM × día
     col_c6, col_c7 = st.columns([2, 3])
 
     with col_c6:
